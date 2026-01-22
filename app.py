@@ -699,32 +699,37 @@ class HorizontalQuoteProcessor:
         except Exception as e:
             return None
     
-    def fuzzy_match_columns(self, columns):
-        """Fallback fuzzy matching for columns"""
+    def fuzzy_match_columns(self,columns):
+        """
+        Fallback method: Match columns using string similarity
+        """
         mapping = {}
-        
+
+        # Define variations for each required column
         variations = {
-            'Part No': ['part no', 'part number', 'partno'],
-            'Part Name': ['part name', 'part description', 'description'],
-            'Mod': ['mod', 'revision', 'rev no', 'rev'],
+            'Part No': ['part no', 'part number', 'partno', 'part_no', 'part-no'],
+            'Loose Part No': ['loose part no', 'loose part number', 'child part no', 'sub part no'],
+            'Part Name': ['part name', 'part description', 'description', 'partname'],
+            'Mod': ['mod', 'model', 'modification', 'revision', 'rev no', 'rev', 'rev.'],
             'Val': ['val', 'validity', 'valid'],
-            'Material': ['material', 'material grade', 'grade'],
-            'Thk mm': ['thk mm', 'thickness', 'thk'],
-            'Blank Width mm': ['blank width', 'width'],
-            'Blank Length mm': ['blank length', 'length'],
-            'No Of Components per blank': ['components per blank', 'comp/blank'],
-            'Sheet Width mm': ['sheet width', 'sht width'],
-            'Sheet Length mm': ['sheet length', 'sht length'],
-            'No Of Components per sheet': ['components per sheet', 'comp/sheet'],
-            'Fin Weight (Physically Checked)': ['fin weight', 'finish weight', 'final weight']
+            'Material': ['material', 'material grade', 'grade', 'mat'],
+            'Thk mm': ['thk mm', 'thickness', 'thk', 'thickness mm'],
+            'Blank Width mm': ['blank width', 'blank width mm', 'width', 'blank_width'],
+            'Blank Length mm': ['blank length', 'blank length mm', 'length', 'blank_length'],
+            'No Of Components per blank': ['components per blank', 'no of components per blank', 'comp/blank', 'compo per blank', 'no of components/blank', 'components/blank'],
+            'Sheet Width mm': ['sheet width', 'sheet width mm', 'sht width'],
+            'Sheet Length mm': ['sheet length', 'sheet length mm', 'sht length'],
+            'No Of Components per sheet': ['components per sheet', 'no of components per sheet', 'comp/sheet', 'compo per sheet', 'no of components/sheet', 'components/sheet', 'no of components'],
+            'Fin Weight (Physically Checked)': ['fin weight', 'finish weight', 'final weight', 'physically checked']
         }
-        
-        weight_exclusions = ['input', 'i/p', 'car', 'blank', 'raw']
-        
+
+        weight_exclusions = ['input', 'i/p', 'inp', 'car', 'blank', 'raw', 'initial']
+
         for required_col, var_list in variations.items():
             for col in columns:
                 col_lower = str(col).lower().strip()
-                
+                col_normalized = col_lower.replace('/', '').replace('-', '').replace('_', ' ').replace('.', '')
+
                 if required_col == 'Fin Weight (Physically Checked)':
                     if any(excl in col_lower for excl in weight_exclusions):
                         continue
@@ -733,12 +738,15 @@ class HorizontalQuoteProcessor:
                         break
                 else:
                     for variation in var_list:
-                        if variation in col_lower:
+                        var_normalized = variation.replace('/', '').replace('-', '').replace('_', ' ')
+
+                        if var_normalized in col_normalized:
                             mapping[required_col] = col
                             break
+
                     if required_col in mapping:
                         break
-        
+
         return mapping
     
     def find_header_row(self, file_bytes, sheet_name, file_ext):
@@ -802,6 +810,19 @@ class HorizontalQuoteProcessor:
         if not extracted_data:
             return None
         
+        if 'Loose Part No' in column_mapping and column_mapping['Loose Part No'] in df.columns:
+            loose_col = column_mapping['Loose Part No']
+
+            if 'Part No' in extracted_data:
+                part_no_series = extracted_data['Part No'].fillna('').astype(str).str.strip()
+                loose_series = df[loose_col].fillna('').astype(str).str.strip()
+
+                extracted_data['Part No'] = part_no_series.where(part_no_series != '', loose_series)
+            else:
+                extracted_data['Part No'] = df[loose_col]
+
+        if not extracted_data:
+            return None
         df_result = pd.DataFrame(extracted_data)
         
         if 'Part No' in df_result.columns:
@@ -926,18 +947,50 @@ class HorizontalQuoteProcessor:
 
 def main():
     st.title("📊 Quote Processor")
-    st.markdown("Process vertical and horizontal Excel quote files")
+    st.markdown("---")
     
-    tab1, tab2 = st.tabs(["📐 Vertical Quotes", "📊 Horizontal Quotes (AI)"])
+    # Custom CSS for separated column-style tabs
+    st.markdown("""
+        <style>
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 100px;
+            justify-content: center;
+            background-color: transparent;
+            padding: 20px 0px;
+        }
+        .stTabs [data-baseweb="tab"] {
+            height: 80px;
+            min-width: 300px;
+            padding: 0px 40px;
+            background-color: #f8f9fa;
+            border: 3px solid #dee2e6;
+            border-radius: 15px;
+            font-weight: 700;
+            font-size: 18px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .stTabs [aria-selected="true"] {
+            background-color: #0066cc !important;
+            color: white !important;
+            border-color: #0052a3 !important;
+            box-shadow: 0 6px 12px rgba(0,102,204,0.3);
+            transform: translateY(-2px);
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    tab1, tab2 = st.tabs(["📐 VERTICAL QUOTES", "🤖 HORIZONTAL QUOTES (AI)"])
     
     # ========== VERTICAL QUOTES TAB ==========
     with tab1:
-        st.header("Vertical Quote Processing")
+        st.header("📐 Vertical Quote Processing")
+        st.markdown("---")
         
-        st.info("💡 **Tip:** Navigate to your folder, select all files (Ctrl+A / Cmd+A), and upload them together!")
+        st.info("💡 **Quick Upload Tip:** Navigate to your folder, select all files (Ctrl+A / Cmd+A), and upload them together!")
         
+        st.markdown("### 📤 Upload Files")
         uploaded_files_v = st.file_uploader(
-            "Upload Vertical Quote Files (Select multiple files from folder)", 
+            "Select Multiple Vertical Quote Files", 
             type=['xlsx', 'xls'], 
             accept_multiple_files=True, 
             key="vertical",
@@ -945,9 +998,10 @@ def main():
         )
         
         if uploaded_files_v:
-            st.subheader(f"📁 {len(uploaded_files_v)} file(s) uploaded")
+            st.markdown("---")
+            st.subheader(f"📁 {len(uploaded_files_v)} file(s) ready for processing")
             
-            if st.button("🚀 Process Vertical Quotes", type="primary", key="process_v"):
+            if st.button("🚀 Process Vertical Quotes", type="primary", key="process_v", use_container_width=True):
                 processor = VerticalQuoteProcessor()
                 
                 with st.spinner("Processing..."):
@@ -969,15 +1023,16 @@ def main():
                     progress.empty()
                     
                     # Display Statistics
-                    st.divider()
+                    st.markdown("---")
+                    st.markdown("### 📊 Processing Results")
                     col1, col2, col3 = st.columns(3)
                     with col1:
-                        st.metric("✅ Successfully Processed", len(successful))
+                        st.metric("✅ Successfully Processed", len(successful), delta=f"{len(successful)} files")
                     with col2:
                         st.metric("⚠️ Skipped Files", len(skipped))
                     with col3:
                         st.metric("❌ Failed Files", len(errors))
-                    st.divider()
+                    st.markdown("---")
                     
                     if successful:
                         st.success(f"✅ Successfully processed {len(successful)} file(s)")
@@ -992,7 +1047,8 @@ def main():
                             label="📥 Download All Processed Files (ZIP)",
                             data=zip_buffer,
                             file_name=f"vertical_quotes_processed.zip",
-                            mime="application/zip"
+                            mime="application/zip",
+                            use_container_width=True
                         )
                         
                         with st.expander("📋 View processed files"):
@@ -1017,9 +1073,10 @@ def main():
 
     # ========== HORIZONTAL QUOTES TAB ==========
     with tab2:
-        st.header("Horizontal Quote Processing (AI-Powered)")
+        st.header("🤖 Horizontal Quote Processing (AI)")
+        st.markdown("---")
         
-        st.info("💡 **Tip:** Navigate to your folder, select all files (Ctrl+A / Cmd+A), and upload them together!")
+        st.info("💡 **Quick Upload Tip:** Navigate to your folder, select all files (Ctrl+A / Cmd+A), and upload them together!")
         
         api_key = os.getenv("GEMINI_API_KEY")
     
@@ -1027,8 +1084,9 @@ def main():
             st.error("⚠️ API Key not found! Please add GEMINI_API_KEY to your .env file")
             st.stop()
         
+        st.markdown("### 📤 Upload Files")
         uploaded_files_h = st.file_uploader(
-            "Upload Horizontal Quote Files (Select multiple files from folder)", 
+            "Select Multiple Horizontal Quote Files", 
             type=['xlsx', 'xls'], 
             accept_multiple_files=True, 
             key="horizontal",
@@ -1036,9 +1094,10 @@ def main():
         )
         
         if uploaded_files_h:
-            st.subheader(f"📁 {len(uploaded_files_h)} file(s) uploaded")
+            st.markdown("---")
+            st.subheader(f"📁 {len(uploaded_files_h)} file(s) ready for AI processing")
             
-            if st.button("🚀 Process Horizontal Quotes (AI)", type="primary", key="process_h"):
+            if st.button("🤖 Process Horizontal Quotes (AI)", type="primary", key="process_h", use_container_width=True):
                 processor = HorizontalQuoteProcessor(api_key)
                 
                 with st.spinner("AI Processing..."):
@@ -1060,15 +1119,16 @@ def main():
                     progress.empty()
                     
                     # Display Statistics
-                    st.divider()
+                    st.markdown("---")
+                    st.markdown("### 📊 AI Processing Results")
                     col1, col2, col3 = st.columns(3)
                     with col1:
-                        st.metric("✅ Successfully Processed", len(successful))
+                        st.metric("✅ Successfully Processed", len(successful), delta=f"{len(successful)} files")
                     with col2:
                         st.metric("⚠️ Skipped Files", len(skipped))
                     with col3:
                         st.metric("❌ Failed Files", len(errors))
-                    st.divider()
+                    st.markdown("---")
                     
                     if successful:
                         st.success(f"✅ Successfully processed {len(successful)} file(s)")
@@ -1082,8 +1142,9 @@ def main():
                         st.download_button(
                             label="📥 Download All Processed Files (ZIP)",
                             data=zip_buffer,
-                            file_name=f"horizontal_quotes_processed.zip",
-                            mime="application/zip"
+                            file_name=f"horizontal_quotes_ai_processed.zip",
+                            mime="application/zip",
+                            use_container_width=True
                         )
                         
                         with st.expander("📋 View processed files"):
